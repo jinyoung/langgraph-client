@@ -3,8 +3,9 @@
     <v-card-text class="chat-messages" ref="messagesContainer">
       <template v-for="(message, index) in messages" :key="index">
         <v-card :class="['message-card', message.role]" :color="message.role === 'user' ? 'primary' : 'grey-lighten-4'" :elevation="1">
-          <v-card-text :class="message.role === 'user' ? 'text-white' : ''">
-            {{ message.content }}
+          <v-card-text :class="[message.role === 'user' ? 'text-white' : '', 'message-content']">
+            <span v-if="message.role === 'user'">{{ message.content }}</span>
+            <span v-else class="typing-text" :class="{ 'typing-cursor': message.isTyping }">{{ message.displayContent }}</span>
           </v-card-text>
         </v-card>
       </template>
@@ -69,16 +70,46 @@ const createThread = async () => {
     console.error("Error creating thread:", error)
     messages.value.push({
       role: 'assistant',
-      content: "Error: Could not connect to LangGraph server. Make sure it's running on localhost:2024"
+      content: "Error: Could not connect to LangGraph server. Make sure it's running on localhost:2024",
+      displayContent: "Error: Could not connect to LangGraph server. Make sure it's running on localhost:2024",
+      isTyping: false
     })
   }
+}
+
+const typeText = async (messageIndex, text) => {
+  const message = messages.value[messageIndex]
+  message.isTyping = true
+  message.content = text
+  
+  // 새로운 텍스트만 타이핑
+  const currentLength = message.displayContent.length
+  const newText = text.slice(currentLength)
+  
+  for (let i = 0; i < newText.length; i++) {
+    message.displayContent += newText[i]
+    // 타이핑 딜레이 감소 (5-15ms)
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 10 + 5))
+    
+    // 스크롤은 청크당 한 번만
+    if (i === newText.length - 1) {
+      await scrollToBottom()
+    }
+  }
+  
+  message.isTyping = false
 }
 
 const sendMessage = async () => {
   if (!currentThreadId.value || !newMessage.value.trim()) return
 
   const userMessage = newMessage.value.trim()
-  messages.value.push({ role: 'user', content: userMessage })
+  messages.value.push({ 
+    role: 'user', 
+    content: userMessage,
+    displayContent: userMessage,
+    isTyping: false 
+  })
   newMessage.value = ''
   isProcessing.value = true
   
@@ -104,7 +135,12 @@ const sendMessage = async () => {
 
     // Add placeholder for assistant's message
     const assistantMessageIndex = messages.value.length
-    messages.value.push({ role: 'assistant', content: '' })
+    messages.value.push({ 
+      role: 'assistant', 
+      content: '', 
+      displayContent: '',
+      isTyping: true 
+    })
     await scrollToBottom()
 
     // Stream the assistant's reply
@@ -115,6 +151,7 @@ const sendMessage = async () => {
 
     const reader = streamRes.body.getReader()
     const decoder = new TextDecoder("utf-8")
+    let fullResponse = ''
     
     while (true) {
       const { value, done } = await reader.read()
@@ -122,8 +159,9 @@ const sendMessage = async () => {
       
       if (value) {
         const chunk = decoder.decode(value, { stream: true })
-        messages.value[assistantMessageIndex].content += chunk
-        await scrollToBottom()
+        fullResponse += chunk
+        // 새로운 청크만 타이핑
+        await typeText(assistantMessageIndex, fullResponse)
       }
     }
 
@@ -132,7 +170,9 @@ const sendMessage = async () => {
     console.error("Error:", error)
     messages.value.push({
       role: 'assistant',
-      content: "Error: Something went wrong while processing your message."
+      content: "Error: Something went wrong while processing your message.",
+      displayContent: "Error: Something went wrong while processing your message.",
+      isTyping: false
     })
   } finally {
     isProcessing.value = false
@@ -189,5 +229,26 @@ onMounted(() => {
 
 .v-textarea {
   flex-grow: 1;
+}
+
+.message-content {
+  white-space: pre-wrap;
+}
+
+.typing-text {
+  display: inline-block;
+}
+
+.typing-cursor::after {
+  content: '▋';
+  display: inline-block;
+  animation: blink 1s step-end infinite;
+  margin-left: 2px;
+  vertical-align: baseline;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 </style> 
