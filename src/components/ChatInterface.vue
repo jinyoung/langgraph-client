@@ -80,24 +80,16 @@ const createThread = async () => {
 const typeText = async (messageIndex, text) => {
   const message = messages.value[messageIndex]
   message.isTyping = true
-  message.content = text
   
-  // 새로운 텍스트만 타이핑
-  const currentLength = message.displayContent.length
-  const newText = text.slice(currentLength)
-  
-  for (let i = 0; i < newText.length; i++) {
-    message.displayContent += newText[i]
-    // 타이핑 딜레이 감소 (5-15ms)
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 10 + 5))
-    
-    // 스크롤은 청크당 한 번만
-    if (i === newText.length - 1) {
-      await scrollToBottom()
-    }
+  for (let i = 0; i < text.length; i++) {
+    message.content += text[i]
+    message.displayContent += text[i]
+    // 타이핑 딜레이 (2-5ms)
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 3 + 2))
   }
   
-  message.isTyping = false
+  // 청크 완료 후 스크롤
+  await scrollToBottom()
 }
 
 const sendMessage = async () => {
@@ -151,7 +143,6 @@ const sendMessage = async () => {
 
     const reader = streamRes.body.getReader()
     const decoder = new TextDecoder("utf-8")
-    let fullResponse = ''
     
     while (true) {
       const { value, done } = await reader.read()
@@ -159,12 +150,13 @@ const sendMessage = async () => {
       
       if (value) {
         const chunk = decoder.decode(value, { stream: true })
-        fullResponse += chunk
-        // 새로운 청크만 타이핑
-        await typeText(assistantMessageIndex, fullResponse)
+        // 각 청크를 직접 타이핑
+        await typeText(assistantMessageIndex, chunk)
       }
     }
 
+    // 타이핑 완료
+    messages.value[assistantMessageIndex].isTyping = false
     console.log("Stream complete")
   } catch (error) {
     console.error("Error:", error)
